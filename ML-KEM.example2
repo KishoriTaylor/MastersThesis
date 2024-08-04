@@ -284,7 +284,7 @@ def decapsulation(A, t, s, u, v, original_m, q, f):
     h = hashlib.sha3_256(ek_bytes).digest()
     print("\nStep 3: Hash of encapsulation key (H(ek)) during decapsulation:", h.hex())
 
-    m_b_prime = baby_kyber_decrypt(u, v, s, q, f)
+    m_b_prime = KPKE_decrypt(u, v, s, q, f)
     print("\nStep 4: Decrypted message m_b':", m_b_prime)
 
     scale_factor = (q + 1) // 2
