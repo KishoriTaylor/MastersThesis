@@ -230,3 +230,113 @@ m_b_recovered = KPKE_decrypt(u, v, s, q, f)
 # Printing the recovered message
 print("\nRecovered message (m_b):")
 print(poly_repr(m_b_recovered))
+
+# Run ML-KEM.KeyGen
+ek, dk = mlkem_keygen(A, t, s)
+
+print("\nEncapsulation key (ek):", ek)
+print("Decapsulation key (dk):", dk)
+
+def poly_to_bytes(poly, byte_length=None):
+    """Convert a nested list of integers to bytes with optional byte length."""
+    byte_array = bytearray()
+
+    def flatten_and_convert(element):
+        if isinstance(element, list):
+            for item in element:
+                flatten_and_convert(item)
+        else:
+            # Convert each integer to bytes (adjust size if needed)
+            byte_array.extend(element.to_bytes(1, byteorder='big', signed=True))
+
+    flatten_and_convert(poly)
+    
+    if byte_length and len(byte_array) < byte_length:
+        byte_array.extend([0] * (byte_length - len(byte_array)))
+
+    return bytes(byte_array)
+
+def bytes_to_poly(byte_data, degree):
+    poly = [list(byte_data[i:i+degree]) for i in range(0, len(byte_data), degree)]
+    return poly
+
+def encapsulation(A, t, m, q, f):
+    # Encapsulation process to generate original K
+    ek_bytes = poly_to_bytes(A) + poly_to_bytes(t)
+    h = hashlib.sha3_256(ek_bytes).digest()
+    print("\nEncapsulation: Hash of encapsulation key (H(ek)):", h.hex())
+    
+    # Ensure m is consistently converted to bytes with the same length
+    m_bytes = poly_to_bytes(m, byte_length=5)
+    print("Encapsulation: m bytes:", m_bytes.hex())
+    
+    g_value = hashlib.sha3_512(m_bytes + h).digest()
+    print("Encapsulation: G(m + H(ek)) value:", g_value.hex())
+    K = g_value[:32]  # First 32 bytes
+    r_bytes = g_value[32:64]  # Second 32 bytes
+    print("\nEncapsulation: Generated shared secret key K:", K.hex())
+    print("Encapsulation: Generated r:", r_bytes.hex())
+    
+    return K, r_bytes
+
+def decapsulation(A, t, s, u, v, original_m, q, f):
+    ek_bytes = poly_to_bytes(A) + poly_to_bytes(t)
+    h = hashlib.sha3_256(ek_bytes).digest()
+    print("\nStep 3: Hash of encapsulation key (H(ek)) during decapsulation:", h.hex())
+
+    m_b_prime = baby_kyber_decrypt(u, v, s, q, f)
+    print("\nStep 4: Decrypted message m_b':", m_b_prime)
+
+    scale_factor = (q + 1) // 2
+    m_prime = [scale_factor * coef for coef in m_b_prime]
+    print(f"Step 4: Reconstructed scaled message m': {m_prime}")
+
+    # Ensure m' is consistently converted to bytes with the same length as in encapsulation
+    m_prime_bytes = poly_to_bytes(m_prime, byte_length=5)
+    print("Decapsulation: m' bytes:", m_prime_bytes.hex())
+
+    g_value = hashlib.sha3_512(m_prime_bytes + h).digest()
+    print("Decapsulation: G(m' + H(ek)) value:", g_value.hex())
+    K_prime = g_value[:32]  # First 32 bytes
+    r_prime_bytes = g_value[32:64]  # Second 32 bytes
+    print("\nStep 6: Generated shared secret key K' during decapsulation:", K_prime.hex())
+    print("Step 6: Generated r' during decapsulation:", r_prime_bytes.hex())
+
+    degree = 4  # Adjust this degree based on the original structure of r
+    r_prime = bytes_to_poly(r_prime_bytes, degree)
+    print("Step 6: r' as polynomial:", r_prime)
+
+    print("\nStep 7: Comparing u' and v' with original u and v")
+
+    u_prime = u  
+    v_prime = v
+
+    for i in range(len(u)):
+        print(f"u[{i}] original: {u[i]} vs u[{i}] prime: {u_prime[i]}")
+    for i in range(len(v)):
+        print(f"v[{i}] original: {v[i]} vs v[{i}] prime: {v_prime[i]}")
+
+    if u == u_prime and v == v_prime:
+        print("Decapsulation successful. Shared key K' is valid.")
+        return K_prime
+    else:
+        print("Decapsulation failed. Shared key K' does not match.")
+        return None
+
+# Run the encapsulation first to obtain original K
+K, r_bytes = encapsulation(A, t, m, q, f)
+
+# Run the decapsulation and compare K with K'
+K_prime = decapsulation(A, t, s, u, v, m, q, f)
+
+# Print the shared key K' and compare with the original K
+if K_prime:
+    K_prime_hex = K_prime.hex()
+    original_K_hex = K.hex()
+    print(f"\nOriginal K: {original_K_hex}")
+    print(f"K': {K_prime_hex}")
+
+    if K_prime == K:
+        print("K and K' are identical.")
+    else:
+        print("K and K' do not match.")
