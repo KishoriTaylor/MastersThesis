@@ -1,0 +1,232 @@
+#ML-KEM example 2 KPKE
+q = 17
+
+# Define polynomial modulus f(x) = x^4 + 1
+f = [1,0, 0, 0, 1]
+
+# Polynomial arithmetic functions
+def poly_add(p1, p2, q):
+    """Add two polynomials and take the result modulo q."""
+    p = [(a + b) % q for a, b in zip(p1, p2)]
+    return p
+
+def poly_sub(p1, p2, q):
+    """Subtract two polynomials and take the result modulo q."""
+    p = [(a - b) % q for a, b in zip(p1, p2)]
+    return p
+
+def poly_mul(p1, p2, q):
+    """Multiply two polynomials and take the result modulo q."""
+    deg = len(p1) + len(p2) - 1
+    res = [0] * deg
+    for i, a in enumerate(p1):
+        for j, b in enumerate(p2):
+            res[i + j] += a * b
+            res[i + j] %= q
+    return res
+
+def poly_mod(p, mod, q):
+    """Reduce polynomial p modulo mod in Z_q."""
+    while len(p) >= len(mod):
+        if p[-1] == 0:
+            p.pop()
+            continue
+        coef = p[-1]
+        for i in range(1, len(mod) + 1):
+            p[-i] -= coef * mod[-i]
+            p[-i] %= q
+        p.pop()
+    return p
+
+def poly_reduce(p, f, q):
+    """Reduce polynomial p modulo f(x) in Z_q[x]."""
+    return poly_mod(p, f, q)
+
+# Polynomial representation for pretty printing
+def poly_repr(poly):
+    return " + ".join(f"{coef}x^{i}" if coef != 0 else "" for i, coef in enumerate(poly)).strip()
+
+# Convert list of coefficients to polynomial with degree 4
+def to_poly(coeffs):
+    p = [0] * 5
+    for i, c in enumerate(coeffs):
+        p[i] = c
+    return p
+
+# Define input polynomials
+s1 = to_poly([1, 2, -1, 1 ])       
+s2 = to_poly([-1, -1, 1, -1])      
+s = [s1, s2]
+
+A11 = to_poly([4, 1, 2, 3])      
+A12 = to_poly([1, 3, 1, 4])      
+A21 = to_poly([3, 2, 4, 1 ])      
+A22 = to_poly([2, 1, 3, 4 ])      
+A = [[A11, A12], [A21, A22]]
+
+g1 = to_poly([-2, 1, 0, 1])       
+g2 = to_poly([0, -1, 1, 1])       
+g = [g1, g2]
+
+r1 = to_poly([1, 2, -1, 1])       
+r2 = to_poly([0, 0, -1, -1])      
+r = [r1, r2]
+
+e1 = to_poly([-1, 0, 1, 2])      
+e2 = to_poly([1, -1, 0, 0])      
+e = [e1, e2]
+
+h = to_poly([1, 0, -1, 1])       
+
+m_b = to_poly([1, 1, 0, 1])      
+
+# Upscale m_b
+scale_factor = (q + 1) // 2 # (17 + 1) // = 9
+m = to_poly([scale_factor * coef for coef in m_b])  # m = 9 * m_b = 9x + 9
+
+# Printing input polynomials in human-readable format
+print("Input polynomials:")
+print(f"s1 = {poly_repr(s1)}")
+print(f"s2 = {poly_repr(s2)}")
+print(f"A11 = {poly_repr(A11)}")
+print(f"A12 = {poly_repr(A12)}")
+print(f"A21 = {poly_repr(A21)}")
+print(f"A22 = {poly_repr(A22)}")
+print(f"g1 = {poly_repr(g1)}")
+print(f"g2 = {poly_repr(g2)}")
+print(f"r1 = {poly_repr(r1)}")
+print(f"r2 = {poly_repr(r2)}")
+print(f"e1 = {poly_repr(e1)}")
+print(f"e2 = {poly_repr(e2)}")
+print(f"h = {poly_repr(h)}")
+print(f"m_b = {poly_repr(m_b)}")
+print(f"m = {poly_repr(m)}")
+
+# Encryption steps
+def baby_kyber_encrypt(A, s, g, r, e, h, m, q, f):
+    # Calculate As + g
+    As = [[poly_mul(A[i][j], s[j], q) for j in range(len(s))] for i in range(len(A))]
+    print("Intermediate As:")
+    for i in range(len(As)):
+        for j in range(len(As[i])):
+            poly_mod_q = As[i][j]
+            poly_mod_f = poly_reduce(poly_mod_q, f, q)
+            print(f"A[{i}][{j}] * s[{j}] = {poly_repr(poly_mod_q)} (mod q), {poly_repr(poly_mod_f)} (mod f and q)")
+
+    As_summed = [poly_add(As[i][0], As[i][1], q) for i in range(len(As))]
+    print("\nAs summed:")
+    for poly in As_summed:
+        print(poly_repr(poly))
+    
+    As_summed_mod_f = [poly_reduce(poly, f, q) for poly in As_summed]
+    print("\nAs summed reduced mod f and q:")
+    for poly in As_summed_mod_f:
+        print(poly_repr(poly))
+    
+    t = [poly_add(As_summed_mod_f[i], g[i], q) for i in range(len(As_summed_mod_f))]
+    print("\nt (As + g):")
+    for poly in t:
+        print(poly_repr(poly))
+
+    # Calculate A^Tr + e
+    Br = [[poly_mul(A[j][i], r[j], q) for j in range(len(r))] for i in range(len(A))]
+    print("\nIntermediate Br:")
+    for i in range(len(Br)):
+        for j in range(len(Br[i])):
+            poly_mod_q = Br[i][j]
+            poly_mod_f = poly_reduce(poly_mod_q, f, q)
+            print(f"A[{j}][{i}] * r[{j}] = {poly_repr(poly_mod_q)} (mod q), {poly_repr(poly_mod_f)} (mod f and q)")
+
+    Br_summed = [poly_add(Br[i][0], Br[i][1], q) for i in range(len(Br))]
+    print("\nBr summed:")
+    for poly in Br_summed:
+        print(poly_repr(poly))
+    
+    Br_summed_mod_f = [poly_reduce(poly, f, q) for poly in Br_summed]
+    print("\nBr summed reduced mod f and q:")
+    for poly in Br_summed_mod_f:
+        print(poly_repr(poly))
+    
+    Br_summed_e = [poly_add(Br_summed_mod_f[i], e[i], q) for i in range(len(Br_summed_mod_f))]
+    print("\nBr_summed_e (Br + e):")
+    for poly in Br_summed_e:
+        print(poly_repr(poly))
+
+    # Calculate t^Tr + h + m
+    t_T_r = [poly_mul(t[i], r[i], q) for i in range(len(t))]
+    print("\nt^T * r:")
+    for poly in t_T_r:
+        print(poly_repr(poly))
+    
+    t_T_r_summed = poly_add(t_T_r[0], t_T_r[1], q)
+    print("\nt^T * r summed:")
+    print(poly_repr(t_T_r_summed))
+    
+    t_T_r_summed_mod_f = poly_reduce(t_T_r_summed, f, q)
+    print("\nt^T * r summed reduced mod f and q:")
+    print(poly_repr(t_T_r_summed_mod_f))
+
+    # Calculate v = t^T * r + h + m
+    v = poly_add(poly_add(t_T_r_summed_mod_f, h, q), m, q)
+    v_mod_f = poly_reduce(v, f, q)
+    print("\nv (t^T * r + h + m):")
+    print(f"{poly_repr(v)} (mod q)")
+    print(f"{poly_repr(v_mod_f)} (mod f and q)")
+
+    return t, Br_summed_e, v_mod_f
+
+# Running the encryption
+t, u, v = baby_kyber_encrypt(A, s, g, r, e, h, m, q, f)
+
+# Printing the results
+print("\nFinal Encrypted values t:")
+for poly in t:
+    print(poly_repr(poly))
+
+print("\nFinal Encrypted value (u):")
+for poly in u:
+    print(poly_repr(poly))
+
+print("\nFinal Encrypted value (v):")
+print(poly_repr(v))
+
+# Decryption steps
+def baby_kyber_decrypt(u, v, s, q, f):
+    # Step 1: Compute the product of the secret key s with the ciphertext component u
+    print("\nDecryption Step 1: Compute s * u")
+    s_u = [poly_mul(s[i], u[i], q) for i in range(len(s))]
+    for i in range(len(s_u)):
+        poly_mod_q = s_u[i]
+        poly_mod_f = poly_reduce(poly_mod_q, f, q)
+        print(f"s[{i}] * u[{i}] = {poly_repr(poly_mod_q)} (mod q), {poly_repr(poly_mod_f)} (mod f and q)")
+    
+    # Step 2: Sum the results of the multiplication
+    print("\nDecryption Step 2: Sum the products")
+    s_u_summed = poly_add(s_u[0], s_u[1], q)
+    print(f"s_u_summed = {poly_repr(s_u_summed)} (mod q)")
+    
+    s_u_summed_mod_f = poly_reduce(s_u_summed, f, q)
+    print(f"s_u_summed = {poly_repr(s_u_summed_mod_f)} (mod f and q)")
+    
+    # Step 3: Subtract this from the ciphertext component v to isolate the scaled message
+    print("\nDecryption Step 3: Subtract s_u_summed from v")
+    v_minus_su = poly_sub(v, s_u_summed_mod_f, q)
+    print(f"v - s_u_summed = {poly_repr(v_minus_su)} (mod q)")
+    
+    v_minus_su_mod_f = poly_reduce(v_minus_su, f, q)
+    print(f"v - s_u_summed = {poly_repr(v_minus_su_mod_f)} (mod f and q)")
+    
+    # Step 4: Round the coefficients to retrieve the original message
+    print("\nDecryption Step 4: Round the coefficients to retrieve the original message m_b")
+    scale_factor = (q + 1) // 2
+    m_b_recovered = [(coef + (scale_factor // 2)) // scale_factor for coef in v_minus_su_mod_f]
+    print(f"Recovered m_b = {m_b_recovered}")
+    
+    return m_b_recovered
+
+# Running the decryption
+m_b_recovered = baby_kyber_decrypt(u, v, s, q, f)
+
+# Printing the recovered message
+print("\nRecovered message (m_b):")
+print(poly_repr(m_b_recovered))
