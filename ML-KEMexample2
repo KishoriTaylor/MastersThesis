@@ -103,7 +103,7 @@ print(f"m_b = {poly_repr(m_b)}")
 print(f"m = {poly_repr(m)}")
 
 # Encryption steps
-def baby_kyber_encrypt(A, s, g, r, e, h, m, q, f):
+def KPKE_encrypt(A, s, g, r, e, h, m, q, f):
     # Calculate As + g
     As = [[poly_mul(A[i][j], s[j], q) for j in range(len(s))] for i in range(len(A))]
     print("Intermediate As:")
@@ -176,7 +176,7 @@ def baby_kyber_encrypt(A, s, g, r, e, h, m, q, f):
     return t, Br_summed_e, v_mod_f
 
 # Running the encryption
-t, u, v = baby_kyber_encrypt(A, s, g, r, e, h, m, q, f)
+t, u, v = KPKE_encrypt(A, s, g, r, e, h, m, q, f)
 
 # Printing the results
 print("\nFinal Encrypted values t:")
@@ -191,7 +191,7 @@ print("\nFinal Encrypted value (v):")
 print(poly_repr(v))
 
 # Decryption steps
-def baby_kyber_decrypt(u, v, s, q, f):
+def KPKE_decrypt(u, v, s, q, f):
     # Step 1: Compute the product of the secret key s with the ciphertext component u
     print("\nDecryption Step 1: Compute s * u")
     s_u = [poly_mul(s[i], u[i], q) for i in range(len(s))]
@@ -225,7 +225,7 @@ def baby_kyber_decrypt(u, v, s, q, f):
     return m_b_recovered
 
 # Running the decryption
-m_b_recovered = baby_kyber_decrypt(u, v, s, q, f)
+m_b_recovered = KPKE_decrypt(u, v, s, q, f)
 
 # Printing the recovered message
 print("\nRecovered message (m_b):")
