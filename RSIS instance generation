@@ -1,0 +1,78 @@
+
+
+import numpy as np
+import random
+
+class RingPolynomial:
+    def __init__(self, coeffs, modulus, n):
+        self.coeffs = np.array(coeffs) % modulus
+        self.modulus = modulus
+        self.n = n
+    
+    def __add__(self, other):
+        return RingPolynomial((self.coeffs + other.coeffs) % self.modulus, self.modulus, self.n)
+    
+    def __sub__(self, other):
+        return RingPolynomial((self.coeffs - other.coeffs) % self.modulus, self.modulus, self.n)
+    
+    def __mul__(self, other):
+        result_coeffs = np.convolve(self.coeffs, other.coeffs) % self.modulus
+        result_coeffs = self.reduce_mod_xn_plus_1(result_coeffs)
+        return RingPolynomial(result_coeffs, self.modulus, self.n)
+    
+    def reduce_mod_xn_plus_1(self, coeffs):
+        """ Reduce the polynomial modulo x^n + 1 """
+        result = np.zeros(self.n, dtype=int)
+        for i in range(len(coeffs)):
+            result[i % self.n] = (result[i % self.n] + coeffs[i]) % self.modulus
+        return result
+
+    def norm(self):
+        return np.linalg.norm(self.coeffs, ord=2)
+    
+    def __repr__(self):
+        return f"RingPolynomial(coeffs={self.coeffs}, modulus={self.modulus}, n={self.n})"
+
+def generate_random_polynomial(n, modulus):
+    return RingPolynomial([random.randint(0, modulus - 1) for _ in range(n)], modulus, n)
+
+def ring_sis_solver(a_list, beta, q, n):
+    m = len(a_list)
+    attempt_count = 0
+    while True:
+        attempt_count += 1
+        z_list = [generate_random_polynomial(n, q) for _ in range(m)]
+        linear_combination = sum((a * z for a, z in zip(a_list, z_list)), RingPolynomial([0]*n, q, n))
+        if np.all(linear_combination.coeffs % q == 0) and all(0 < z.norm() <= beta for z in z_list):
+            print(f"Solved after {attempt_count} attempts")
+            break
+        if attempt_count % 1000 == 0:
+            print(f"Attempt {attempt_count}: Still searching for a valid solution...")
+    
+    return z_list
+
+def main():
+    q = 5
+    n = 2  
+    m = 2
+    beta = 4
+    
+    a_list = [generate_random_polynomial(n, q) for _ in range(m)]
+    
+    print("Input polynomials (a_i):")
+    for i, a in enumerate(a_list):
+        print(f"a_{i+1}: {a.coeffs}")
+    
+    z_list = ring_sis_solver(a_list, beta, q, n)
+    
+    print("\nSolution polynomials (z_i):")
+    for i, z in enumerate(z_list):
+        print(f"z_{i+1}: {z.coeffs}")
+    
+    # Verify the solution
+    linear_combination = sum((a * z for a, z in zip(a_list, z_list)), RingPolynomial([0]*n, q, n))
+    print(f"\nLinear combination of a_i * z_i (mod q): {linear_combination.coeffs % q}")
+    assert np.all(linear_combination.coeffs % q == 0), "The solution is incorrect!"
+
+if __name__ == "__main__":
+    main()
