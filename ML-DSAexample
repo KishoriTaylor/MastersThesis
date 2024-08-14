@@ -1,28 +1,31 @@
-import numpy as np
-from hashlib import sha256
+from hashlib import shake_256
 import time
 
-# Modulus and polynomial ring
-q = 17
-f = [1, 0, 0, 0, 1]  # Polynomial modulus x^4 + 1
 
-# Polynomial arithmetic functions
+def H_shake256(input_data, output_length_bits):
+    output_length_bytes = output_length_bits // 8
+    shake = shake_256()
+    shake.update(input_data.encode())
+    return shake.digest(output_length_bytes)
+
+
 def poly_add(p1, p2, q):
     return [(a + b) % q for a, b in zip(p1, p2)]
 
 def poly_sub(p1, p2, q):
     return [(a - b) % q for a, b in zip(p1, p2)]
 
-def poly_mul(p1, p2, f, q):
+def poly_mul_debug(p1, p2, f, q):
     deg = len(p1) + len(p2) - 1
     res = [0] * deg
     for i, a in enumerate(p1):
         for j, b in enumerate(p2):
             res[i + j] += a * b
             res[i + j] %= q
-    return poly_mod(res, f, q)
+    print(f"Intermediate multiplication result (before reduction): {poly_to_str(res)}")
+    return poly_mod_debug(res, f, q)
 
-def poly_mod(p, mod, q):
+def poly_mod_debug(p, mod, q):
     while len(p) >= len(mod):
         if p[-1] == 0:
             p.pop()
@@ -32,10 +35,11 @@ def poly_mod(p, mod, q):
             p[-i] -= coef * mod[-i]
             p[-i] %= q
         p.pop()
+    print(f"After reduction: {poly_to_str(p)}")
     return p
 
 def poly_reduce(p, f, q):
-    return poly_mod(p, f, q)
+    return poly_mod_debug(p, f, q)
 
 def power2round(r, d):
     r0 = [coeff % (2 ** d) for coeff in r]
@@ -43,15 +47,25 @@ def power2round(r, d):
     print(f"Power2Round: r = {poly_to_str(r)}, r0 = {poly_to_str(r0)}, r1 = {poly_to_str(r1)}")
     return r1, r0
 
+def decompose(r, q, gamma2):
+    """Decompose r into (r1, r0) such that r ≡ r1 (2*gamma2) + r0 mod q."""
+    r_plus = [coeff % q for coeff in r]  # r^+ = r mod q
+    r0 = [(coeff % (2 * gamma2)) - gamma2 if coeff % (2 * gamma2) > gamma2 else coeff % (2 * gamma2) for coeff in r_plus]  # r_0 ≡ r^+ mod^{±} (2*gamma2)
+
+    r1 = []
+    for i, coeff in enumerate(r_plus):
+        if coeff - r0[i] == q - 1:
+            r1.append(0)
+            r0[i] -= 1
+        else:
+            r1.append((coeff - r0[i]) // (2 * gamma2))
+    
+    return r1, r0
+
 def highbits(r, gamma2):
-    r1 = [(coeff // (2 * gamma2)) for coeff in r]
+    r1, _ = decompose(r, 17, gamma2)
     print(f"HighBits: r = {poly_to_str(r)}, r1 = {poly_to_str(r1)}")
     return r1
-
-def H(input_data, length):
-    digest = sha256(input_data.encode()).hexdigest()
-    bin_digest = bin(int(digest, 16))[2:].zfill(length)
-    return bin_digest[:length]
 
 def poly_to_str(p):
     terms = []
@@ -65,11 +79,15 @@ def poly_to_str(p):
                 terms.append(f"{coeff}x^{i}")
     return " + ".join(terms) if terms else "0"
 
-# Polynomial representation for pretty printing
+
 def poly_repr(poly):
     return " + ".join(f"{coef}x^{i}" if coef != 0 else "" for i, coef in enumerate(poly)).strip()
 
-# Define input polynomials for the larger example
+
+q = 17
+gamma2 = 2  
+f = [1, 0, 0, 0, 1]  # Polynomial modulus x^4 + 1
+
 A = [
     [[4, 1, 2, 3], [3, 2, 4, 1]],
     [[1, 3, 1, 4], [2, 1, 3, 4]]
@@ -79,70 +97,138 @@ s1 = [[1, 2, -1, 1], [-1, -1, 1, -1]]
 s2 = [[-2, 1, 0, 1], [0, -1, 1, 1]]
 
 # Key Generation
-def keygen():
-    print("### Key Generation ###")
+def keygen_with_shake256():
+    print("### Key Generation (Using SHAKE-256 with \lambda = 4) ###")
     
     print(f"Input Polynomials:\nA = {[[poly_to_str(poly) for poly in row] for row in A]}\ns1 = {poly_to_str(s1[0])}, {poly_to_str(s1[1])}\ns2 = {poly_to_str(s2[0])}, {poly_to_str(s2[1])}\n")
     
-    t = [poly_add(poly_mul(A[0][i], s1[0], f, q), poly_add(poly_mul(A[1][i], s1[1], f, q), s2[i], q), q) for i in range(2)]
+    t = [
+        poly_add(
+            poly_mul_debug(A[0][0], s1[0], f, q),
+            poly_add(poly_mul_debug(A[0][1], s1[1], f, q), s2[0], q),
+            q
+        ),
+        poly_add(
+            poly_mul_debug(A[1][0], s1[0], f, q),
+            poly_add(poly_mul_debug(A[1][1], s1[1], f, q), s2[1], q),
+            q
+        )
+    ]
+    
     print(f"t = A * s1 + s2 = [{poly_to_str(t[0])}, {poly_to_str(t[1])}]")
 
     t1, t0 = zip(*[power2round(t[i], 1) for i in range(2)])
     print(f"t0 = [{poly_to_str(t0[0])}, {poly_to_str(t0[1])}]")
     print(f"t1 = [{poly_to_str(t1[0])}, {poly_to_str(t1[1])}]")
 
-    pk = t1
-    print(f"Public Key (pk) = [{poly_to_str(pk[0])}, {poly_to_str(pk[1])}]")
+    pk = (A, t1)  
+    print(f"Public Key (pk) = A, [{poly_to_str(pk[1][0])}, {poly_to_str(pk[1][1])}]")
 
-    tr = H(''.join(map(str, t1)), 16)
-    print(f"Hash (tr) in bits = {tr}")
+    
+    pk_bytes = ''.join(map(lambda row: ''.join(map(poly_to_str, row)), A)) + ''.join(map(poly_to_str, t1))
+    tr = H_shake256(pk_bytes, 16)
+    print(f"Hash (tr) in bits = {bin(int.from_bytes(tr, 'big'))[2:].zfill(16)}")
     
     sk = (tr, s1, s2, t0)
     return pk, sk
 
-# Signing
-def sign(sk, message, y):
-    print("\n### Signing ###")
+
+
+def makehint(z, r, q):
+    """Compute hint bit indicating whether adding z to r alters the high bits of r."""
+    r1 = highbits(r, gamma2)
+    v1 = highbits(poly_add(r, z, q), gamma2)
+    return int(r1 != v1)
+
+def usehint(h, r, q, gamma2):
+    m = (q - 1) // (2 * gamma2)
+    r1, r0 = decompose(r, q, gamma2)
     
+    adjusted_r1 = []
+    for i in range(len(r1)):
+        if h == 1:
+            if r0[i] > 0:
+                
+                adjusted_r1.append((r1[i] + 1) % m)
+            else:
+                
+                adjusted_r1.append((r1[i] - 1) % m)
+        else:
+            
+            adjusted_r1.append(r1[i])
+    
+    print(f"Final adjusted r1: {adjusted_r1}")
+    return adjusted_r1
+
+
+
+
+
+# Signing
+def sign_with_shake256(pk, sk, message, y):
+    print("\n### Signing (Using SHAKE-256 with \lambda = 4) ###")
+    
+    A, t1 = pk
     tr, s1, s2, t0 = sk
     
-    mu = H(tr + message, 16)
-    print(f"Message hash (mu) in bits = {mu}")
+   
+    mu = H_shake256(tr.hex() + message, 16)
+    print(f"Message hash (mu) in bits = {bin(int.from_bytes(mu, 'big'))[2:].zfill(16)}")
     
     print(f"Mask polynomial y = {poly_to_str(y[0])}, {poly_to_str(y[1])}")
     
-    w = [poly_add(poly_mul(A[0][i], y[0], f, q), poly_add(poly_mul(A[1][i], y[1], f, q), [0]*len(f), q), q) for i in range(2)]
+    w = [poly_add(poly_mul_debug(A[i][0], y[0], f, q), poly_add(poly_mul_debug(A[i][1], y[1], f, q), [0]*len(f), q), q) for i in range(2)]
     print(f"w = A * y = [{poly_to_str(w[0])}, {poly_to_str(w[1])}]")
 
-    w1 = [highbits(w[i], 1) for i in range(2)]
+    w1 = [highbits(w[i], gamma2) for i in range(2)]
     print(f"w1 = [{poly_to_str(w1[0])}, {poly_to_str(w1[1])}]")
 
-    tilde_c = int(H(mu + ''.join(map(str, w1)), 16), 2)
-    print(f"Challenge (tilde_c) = {tilde_c}")
     
-    c_s1 = [poly_mul([tilde_c], s1[i], f, q) for i in range(2)]
+    tilde_c = int.from_bytes(H_shake256(mu.hex() + ''.join(map(str, w1)), 8), 'big')
+    print(f"Challenge (tilde_c) = {bin(tilde_c)[2:].zfill(8)}")
+    
+    c_s1 = [poly_mul_debug([tilde_c], s1[i], f, q) for i in range(2)]
+    c_s2 = [poly_mul_debug([tilde_c], s2[i], f, q) for i in range(2)]
+    c_t0 = [poly_mul_debug([tilde_c], t0[i], f, q) for i in range(2)]
+    
     z = [poly_add(y[i], c_s1[i], q) for i in range(2)]
     print(f"z = y + c * s1 = [{poly_to_str(z[0])}, {poly_to_str(z[1])}]")
     
-    return z, tilde_c
+    
+    h = [makehint(c_t0[i], poly_sub(w[i], c_s2[i], q), q) for i in range(2)]
+    print(f"h = [{h[0]}, {h[1]}]")
+    
+    return z, tilde_c, h
 
 # Verification
-def verify(pk, message, sigma):
-    print("\n### Verification ###")
+def verify_with_shake256(pk, message, sigma, q, gamma2):
+    print("\n### Verification (Using SHAKE-256 with \lambda = 4) ###")
     
-    z, tilde_c = sigma
+    A, t1 = pk
+    z, tilde_c, h = sigma
 
-    w_prime_approx = [poly_sub(poly_mul(A[0][i], z[0], f, q), poly_mul([2 * tilde_c], pk[i], f, q), q) for i in range(2)]
+    w_prime_approx = [
+        poly_sub(
+            poly_add(
+                poly_mul_debug(A[i][0], z[0], f, q), 
+                poly_mul_debug(A[i][1], z[1], f, q), 
+                q
+            ), 
+            poly_mul_debug([2 * tilde_c], t1[i], f, q), 
+            q
+        ) 
+        for i in range(2)
+    ]
     print(f"w'_Approx = [{poly_to_str(w_prime_approx[0])}, {poly_to_str(w_prime_approx[1])}]")
 
-    w1_prime = [highbits(w_prime_approx[i], 1) for i in range(2)]
+    w1_prime = [usehint(h[i], w_prime_approx[i], q, gamma2) for i in range(2)]
     print(f"w1_prime = [{poly_to_str(w1_prime[0])}, {poly_to_str(w1_prime[1])}]")
 
-    pk_str = ''.join(map(poly_to_str, pk))
+    t1_str = ''.join(map(poly_to_str, t1))
     w1_prime_str = ''.join(map(poly_to_str, w1_prime))
 
-    tilde_c_prime = int(H(H(pk_str, 16) + w1_prime_str, 16), 2)
-    print(f"tilde_c' = {tilde_c_prime}")
+    tilde_c_prime = int.from_bytes(H_shake256(H_shake256(t1_str, 16).hex() + w1_prime_str, 8), 'big')
+    print(f"tilde_c' = {bin(tilde_c_prime)[2:].zfill(8)}")
 
     if tilde_c == tilde_c_prime:
         print("Verification successful!")
@@ -151,32 +237,37 @@ def verify(pk, message, sigma):
         print("Verification failed.")
         return False
 
-# Try different y polynomials to find one that verifies successfully
-def find_correct_y(pk, sk, message, max_runtime=60):
+# Try different y polynomials to find all that verify successfully with non-zero tilde_c
+def find_all_correct_y(pk, sk, message, max_runtime=60):
     start_time = time.time()
-    for a in range(-7, 8):  # Reduced range
-        for b in range(-7, 8):
-            for c in range(-7, 8):
-                for d in range(-7, 8):
-                    # Check if we've exceeded the maximum allowed runtime
+    correct_y_list = []
+    for a in range(-3, 4):  # Reduced range
+        for b in range(-3, 4):
+            for c in range(-3, 4):
+                for d in range(-3, 4):
+                
                     if time.time() - start_time > max_runtime:
-                        print("Time limit exceeded. No valid y found.")
-                        return None
+                        print("Time limit exceeded.")
+                        return correct_y_list
                     y = [[a, b, c, d], [d, c, b, a]]
                     print(f"\nTrying y = [{poly_to_str(y[0])}, {poly_to_str(y[1])}]")
-                    sigma = sign(sk, message, y)
-                    if verify(pk, message, sigma):
-                        print(f"Correct y found: [{poly_to_str(y[0])}, {poly_to_str(y[1])}]")
-                        return y
-    print("No valid y found.")
-    return None
+                    sigma = sign_with_shake256(pk, sk, message, y)
+                    if verify_with_shake256(pk, message, sigma, q, gamma2):
+                        z, tilde_c, h = sigma
+                        if tilde_c != 0:
+                            correct_y_list.append((y, tilde_c))
+                            print(f"Valid y found with tilde_c = {tilde_c}: [{poly_to_str(y[0])}, {poly_to_str(y[1])}]")
+    return correct_y_list
 
-# Example usage
-pk, sk = keygen()
+
+pk, sk = keygen_with_shake256()
 message = "11010011010101100101101101001001"
-correct_y = find_correct_y(pk, sk, message, max_runtime=120)  # Set a 2-minute limit
+correct_y_combinations = find_all_correct_y(pk, sk, message, max_runtime=120)  # Set a 2-minute limit
 
-if correct_y:
-    print("\n### Printing Calculations for the Correct y ###")
-    sigma = sign(sk, message, correct_y)
-    verify(pk, message, sigma)
+
+if correct_y_combinations:
+    print("\n### Valid y combinations with non-zero tilde_c ###")
+    for y, tilde_c in correct_y_combinations:
+        print(f"y = [{poly_to_str(y[0])}, {poly_to_str(y[1])}], tilde_c = {bin(tilde_c)[2:].zfill(8)}")
+else:
+    print("No valid y combinations with non-zero tilde_c found.")
