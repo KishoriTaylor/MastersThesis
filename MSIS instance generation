@@ -1,0 +1,101 @@
+import numpy as np
+import random
+
+class RingPolynomial:
+    def __init__(self, coeffs, modulus, n):
+        self.coeffs = np.array(coeffs)
+        self.modulus = modulus
+        self.n = n
+    
+    def __add__(self, other):
+        return RingPolynomial((self.coeffs + other.coeffs), self.modulus, self.n)
+    
+    def __sub__(self, other):
+        return RingPolynomial((self.coeffs - other.coeffs), self.modulus, self.n)
+    
+    def __mul__(self, other):
+        # Perform polynomial multiplication
+        result_coeffs = np.convolve(self.coeffs, other.coeffs)
+        print(f"Multiplication Result (before reduction): {result_coeffs}")
+        # Reduce modulo x^n + 1
+        result_coeffs_mod_xn_plus_1 = self.reduce_mod_xn_plus_1(result_coeffs)
+        print(f"Result after mod x^n+1 (before mod q): {result_coeffs_mod_xn_plus_1}")
+        result_coeffs_mod_q = result_coeffs_mod_xn_plus_1 % self.modulus
+        print(f"Final Result after mod q: {result_coeffs_mod_q}")
+        return RingPolynomial(result_coeffs_mod_q, self.modulus, self.n)
+    
+    def reduce_mod_xn_plus_1(self, coeffs):
+        """Reduce the polynomial modulo x^n + 1"""
+        result = np.zeros(self.n, dtype=int)
+        for i in range(len(coeffs)):
+            if i < self.n:
+                result[i] += coeffs[i]
+            else:
+                result[i % self.n] -= coeffs[i]  # Correct wrapping with subtraction
+        return result
+
+    def norm(self):
+        # Calculate the Euclidean norm of the coefficients
+        return np.linalg.norm(self.coeffs, ord=2)
+    
+    def __repr__(self):
+        return f"RingPolynomial(coeffs={self.coeffs}, modulus={self.modulus}, n={self.n})"
+
+def generate_random_polynomial(n, modulus):
+    return RingPolynomial([random.randint(0, modulus - 1) for _ in range(n)], modulus, n)
+
+def generate_random_matrix(m, n, modulus, ring_n):
+    return [[generate_random_polynomial(ring_n, modulus) for _ in range(n)] for _ in range(m)]
+
+def matrix_vector_product(matrix, vector, modulus, ring_n):
+    result = [RingPolynomial([0] * ring_n, modulus, ring_n) for _ in range(len(matrix))]
+    for i in range(len(matrix)):
+        for j in range(len(vector)):
+            print(f"Multiplying matrix element A[{i}][{j}] = {matrix[i][j]} with vector element z[{j}] = {vector[j]}")
+            result[i] = result[i] + (matrix[i][j] * vector[j])
+            print(f"Intermediate result for row {i}: {result[i].coeffs}")
+    return result
+
+def vector_norm(z):
+    # Flatten all coefficients from the vector of polynomials z
+    flattened_coeffs = [coeff for z_poly in z for coeff in z_poly.coeffs]
+    return np.linalg.norm(flattened_coeffs, ord=2)
+
+def generate_valid_instance(m, n, q, ring_n, beta):
+    while True:
+        A = generate_random_matrix(m, n, q, ring_n)
+        z = [generate_random_polynomial(ring_n, q) for _ in range(n)]
+        Az = matrix_vector_product(A, z, q, ring_n)
+        
+        # Check if Az is zero modulo q and that the norm condition is satisfied
+        if all(np.all(row.coeffs % q == 0) for row in Az) and vector_norm(z) <= beta:
+            # Ensure at least one polynomial in z is non-zero
+            if any(np.any(z_poly.coeffs != 0) for z_poly in z):
+                return A, z
+
+def main():
+    q = 7
+    ring_n = 3
+    m = 2
+    n = 2
+    beta = 10
+    
+    A, z = generate_valid_instance(m, n, q, ring_n, beta)
+    
+    print("Input matrix (A):")
+    for row in A:
+        print([poly.coeffs for poly in row])
+    
+    print("\nSolution vector (z):")
+    for i, z_poly in enumerate(z):
+        print(f"z_{i+1}: {z_poly.coeffs}")
+    
+    # Verify the solution
+    Az = matrix_vector_product(A, z, q, ring_n)
+    print("\nMatrix-vector product A * z (mod q):")
+    for row in Az:
+        print(row.coeffs % q)
+    assert all(np.all(row.coeffs % q == 0) for row in Az), "The solution is incorrect!"
+
+if __name__ == "__main__":
+    main()
